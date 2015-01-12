@@ -28,6 +28,9 @@
     <ClCompile Include="read_buffer.cpp">
       <Filter>Source files</Filter>
     </ClCompile>
+    <ClCompile Include="ip_address.cpp">
+      <Filter>Source files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Makefile" />
@@ -49,6 +52,9 @@
       <Filter>Header files</Filter>
     </ClInclude>
     <ClInclude Include="khash.h">
+      <Filter>Header files</Filter>
+    </ClInclude>
+    <ClInclude Include="ip_address.h">
       <Filter>Header files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -62,6 +62,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="filter.cpp" />
+    <ClCompile Include="ip_address.cpp" />
     <ClCompile Include="read_buffer.cpp" />
     <ClCompile Include="SpamDrop.cpp" />
   </ItemGroup>
@@ -73,6 +74,7 @@
   <ItemGroup>
     <ClInclude Include="config.h" />
     <ClInclude Include="debug.h" />
+    <ClInclude Include="ip_address.h" />
     <ClInclude Include="khash.h" />
     <ClInclude Include="read_buffer.h" />
   </ItemGroup>
