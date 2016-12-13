@@ -13,6 +13,7 @@ Purpose: Filtering Process for SMTP (Interception & Parsing). Everything is brou
 #include <stdint.h>
 #include <map>
 #include <cstring>
+#include "filter.h"
 #include "debug.h"
 #include "read_buffer.h"
 #include "ip_address.h"
@@ -96,7 +97,7 @@ struct cmp_flow_entry
 
 struct flow_state {
 	timeval last_action;
-
+	uint16_t last_seq;
 };
 
 struct out_of_order_key {
@@ -123,7 +124,7 @@ void flow_bump(ConnectionsMap::iterator it){
 	it->second.last_action = cur_time;
 }
 
-ConnectionsPair flow_create(struct ip_address& src, struct ip_address& dst, uint16_t sport, uint16_t dport){
+ConnectionsPair flow_create(struct ip_address& src, struct ip_address& dst, uint16_t sport, uint16_t dport, uint16_t seq){
 	//Create the flow object
 	struct flow_entry* flow = (struct flow_entry*)malloc(sizeof(struct flow_entry));
 	flow->dst = dst;
@@ -142,6 +143,7 @@ ConnectionsPair flow_create(struct ip_address& src, struct ip_address& dst, uint
 	//Create the new connection
 	struct flow_state state;
 	state.last_action = cur_time;
+	state.last_seq = seq;
 	ConnectionsPair pair(flow, state);
 	connections.insert(pair);
 
@@ -175,17 +177,18 @@ ConnectionsPair flow_get(struct ip_address src, struct ip_address dst, uint16_t 
 	return *it;
 }
 
-void tcp_filter_payload(ConnectionsPair& flow_pair, char* payload, uint16_t payload_length, struct nfq_q_handle *qh, int id){
+void tcp_filter_payload(ConnectionsPair& flow_pair, unsigned char* payload, uint16_t payload_length, struct nfq_q_handle *qh, int id){
 
 }
 
 void tcp_filter(struct ip_address& src, struct ip_address& dst, const struct tcp_header* tcp, uint16_t payload_length, struct nfq_q_handle *qh, int id){
 	ConnectionsPair flow_pair;
-	char* payload;
+	unsigned char* payload;
+	uint16_t seq = ntohs(tcp->th_seq);
 
 	if (tcp->th_flags & TH_SYN){
 		DEBUG("[#] SYN Flag set attemping to create flow\n");
-		flow_pair = flow_create(src,dst,tcp->th_sport,tcp->th_dport);
+		flow_pair = flow_create(src, dst, tcp->th_sport, tcp->th_dport, seq);
 	}
 	else{
 		DEBUG("[#] Attemping to lookup flow\n");
@@ -200,10 +203,24 @@ void tcp_filter(struct ip_address& src, struct ip_address& dst, const struct tcp
 		return;
 	}
 
+	//Handle SEQ
+	if (!(tcp->th_flags & TH_SYN)){
+		if (flow_pair.second.last_seq <= seq){
+			//ACCEPT resend by default
+			nfq_verdict_accept(qh, id);
+			return;
+		}
+
+		if ((flow_pair.second.last_seq + 1) != seq){
+			//Out of order
+			DEBUG("[#] Out of order packet received, expected %d got %d\n", flow_pair.second.last_seq + 1, seq);
+		}
+	}
+
 	//Handle any data
 	if (payload_length){
 		DEBUG("[#] Packet has payload, attempting to filter\n");
-		payload = ((char*)tcp) + sizeof(struct tcp_header);
+		payload = ((unsigned char*)tcp) + sizeof(struct tcp_header);
 		tcp_filter_payload(flow_pair, payload, payload_length, qh, id);
 	}
 	else{
@@ -217,6 +234,21 @@ void tcp_filter(struct ip_address& src, struct ip_address& dst, const struct tcp
 	}
 }
 
+void ipv4_filter(struct ipv4_header* ip, struct nfq_q_handle *qh, int id){
+	unsigned char* payload = (unsigned char*)ip;
+	uint8_t header_length = (IP_HL(ip) >> 4);
+	uint16_t payload_length = ip->ip_len;
+	struct ip_address src;
+	struct ip_address dst;
+
+	if (ip->ip_p == htons(6)){
+		tcp_filter(src, dst, (struct tcp_header*)(((char*)ip) + header_length),payload_length,qh,id);
+	}
+	else{
+		nfq_verdict_accept(qh, id);
+	}
+}
+
 /* Return true if packet is to be accepted */
 void ip_filter(const struct iphdr* ip, struct nfq_q_handle *qh, int id){
 	u_int version;               /*  version                 */
@@ -225,7 +257,7 @@ void ip_filter(const struct iphdr* ip, struct nfq_q_handle *qh, int id){
 
 	//Check IP version
 	if (ip->version == 4){
-		//Extract TCP
+		ipv4_filter((struct ipv4_header*)ip, qh, id);
 	}
 	else if (ip->version == 6){
 		//Extract TCP
@@ -275,7 +307,7 @@ void smtp_filter_close(){
 	}
 }
 
-int smtp_filter_setup(u_int16_t qnum)
+int smtp_filter_setup(uint16_t qnum)
 {
 	int nfqueue_fd;
 

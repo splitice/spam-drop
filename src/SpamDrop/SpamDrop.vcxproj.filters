@@ -57,5 +57,8 @@
     <ClInclude Include="ip_address.h">
       <Filter>Header files</Filter>
     </ClInclude>
+    <ClInclude Include="filter.h">
+      <Filter>Header files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
